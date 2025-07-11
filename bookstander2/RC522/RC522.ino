@@ -17,48 +17,66 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); // 等串口准备好
+  delay(2000); // Wait for serial ready
 
-  // OLED I2C 引脚初始化
+  // OLED I2C init
   Wire.begin(9, 8); // SDA=9, SCL=8
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // 0x3C 是常见 I2C 地址
-    Serial.println(F("OLED not work"));
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("OLED init failed!"));
     for(;;);
   }
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0,0);
-  display.println("OLED ");
+  display.println("Place card to scan");
   display.display();
 
-  Serial.println("...");
+  Serial.println("OLED initialized.");
 
   SPI.begin(4, 5, 6);  // SCK=4, MISO=5, MOSI=6
-  Serial.println("SPI ");
+  Serial.println("SPI initialized.");
 
   mfrc522.PCD_Init();
-  Serial.println("RC522...");
+  Serial.println("RC522 ready. Place card to scan.");
 }
 
-
 void loop() {
+  // Wait for a new card
   if (!mfrc522.PICC_IsNewCardPresent()) return;
   if (!mfrc522.PICC_ReadCardSerial()) return;
 
-  Serial.print("UID: ");
+  Serial.print("Card UID: ");
   display.clearDisplay();
   display.setCursor(0,0);
-  display.print("UID:");
+  display.print("Card UID:");
 
   for (byte i = 0; i < mfrc522.uid.size; i++) {
-    Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
+    if (mfrc522.uid.uidByte[i] < 0x10) {
+      Serial.print(" 0");
+      display.print(" 0");
+    } else {
+      Serial.print(" ");
+      display.print(" ");
+    }
     Serial.print(mfrc522.uid.uidByte[i], HEX);
-
-    display.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
     display.print(mfrc522.uid.uidByte[i], HEX);
   }
   Serial.println();
+  display.display();
+
+  // Wait until card is removed
+  Serial.println("Remove card to scan again.");
+  display.setCursor(0, 16);
+  display.print("Remove card...");
+  display.display();
+  while (mfrc522.PICC_IsNewCardPresent() || mfrc522.PICC_ReadCardSerial()) {
+    delay(100);
+  }
+  Serial.println("Ready for next card.");
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print("Place card to scan");
   display.display();
 }
