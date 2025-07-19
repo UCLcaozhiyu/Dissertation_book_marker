@@ -14,19 +14,8 @@
 #define SCREEN_ADDRESS 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// 引脚分配说明：
-// ldrPin = 0 (LDR光敏电阻)
-// piezoPin = 12 (蜂鸣器，已避开SPI)
-// OLED I2C: SDA=8, SCL=9
-// PN532 SPI: SCK=4, MOSI=6, MISO=5, SS=7
-// 改为RC522引脚
-#define SS_PIN    7    // RC522 的 SDA 接 GPIO7
-#define RST_PIN   10   // RC522 的 RST 接 GPIO10
-MFRC522 mfrc522(SS_PIN, RST_PIN);
-//
-// 注意：如需更换开发板或引脚，请同步修改上面定义
 const int ldrPin = 0;
-const int piezoPin = 12;
+const int piezoPin = 5;
 
 const int lightThreshold = 1000;
 const int bookmarkThreshold = 50;
@@ -62,7 +51,9 @@ float bestLuxEMA = 0.0;
 const float emaAlpha = 0.05;
 int animationFrame = 0;
 
-// 恢复 justWokeUp 变量声明
+#define SS_PIN    7
+#define RST_PIN   10
+MFRC522 mfrc522(SS_PIN, RST_PIN);
 bool justWokeUp = false;
 
 void toneManual(int pin, int frequency, int duration) {
@@ -98,11 +89,23 @@ void turnOnOLED() {
   display.display();
 }
 
-void drawBookIcon() {
-  int x = 110, y = 10;
-  display.drawRect(x, y, 12, 10, SSD1306_WHITE);
-  display.drawLine(x + 6, y, x + 6, y + 10, SSD1306_WHITE);
-  display.drawLine(x + 2, y + 2, x + 10, y + 2, SSD1306_WHITE);
+void drawBookAnimation(int frame) {
+  int baseX = 110, baseY = 10;
+  switch (frame % 3) {
+    case 0:
+      display.fillRect(baseX, baseY, 6, 10, SSD1306_WHITE); break;
+    case 1:
+      display.fillRect(baseX, baseY, 6, 10, SSD1306_WHITE);
+      display.drawLine(baseX + 6, baseY, baseX + 10, baseY + 5, SSD1306_WHITE);
+      display.drawLine(baseX + 10, baseY + 5, baseX + 6, baseY + 10, SSD1306_WHITE);
+      display.drawLine(baseX + 6, baseY + 10, baseX + 6, baseY, SSD1306_WHITE);
+      break;
+    case 2:
+      display.drawRect(baseX, baseY, 6, 10, SSD1306_WHITE);
+      display.drawLine(baseX + 6, baseY, baseX + 10, baseY + 5, SSD1306_WHITE);
+      display.drawLine(baseX + 10, baseY + 5, baseX + 6, baseY + 10, SSD1306_WHITE);
+      break;
+  }
 }
 
 void drawRFIDInfo() {
@@ -123,7 +126,7 @@ void displayStatus(const String& line1, const String& line2 = "", const String& 
   display.println(line1);
   if (line2 != "") display.println(line2);
   if (line3 != "") display.println(line3);
-  drawBookIcon();
+  drawBookAnimation(animationFrame++);
   display.display();
 }
 
@@ -131,17 +134,18 @@ void enterDeepSleep() {
   unsigned long waitStart = millis();
   while (millis() - waitStart < 2000) {
     if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
-      String uidStr = "";
+      String uid = "";
       for (byte i = 0; i < mfrc522.uid.size; i++) {
-        if (mfrc522.uid.uidByte[i] < 0x10) uidStr += "0";
-        uidStr += String(mfrc522.uid.uidByte[i], HEX);
+        if (mfrc522.uid.uidByte[i] < 0x10) uid += "0";
+        uid += String(mfrc522.uid.uidByte[i], HEX);
       }
-      lastBookInfo = uidStr;
+      lastBookInfo = uid;
       prefs.putString("lastBook", lastBookInfo);
       break;
     }
     delay(100);
   }
+
   isSleeping = true;
   displayStatus("Bookmark in", "Saving & sleep...");
   turnOffOLED();
@@ -173,23 +177,118 @@ void updateLightTrend(int lightVal) {
 
 void setup() {
   Serial.begin(115200);
-  delay(2000);
-  Serial.println("串口正常启动");
+  pinMode(ldrPin, INPUT);
+  pinMode(piezoPin, OUTPUT);
+  digitalWrite(piezoPin, LOW);
 
-  Wire.begin(8, 9); // 按你的连线
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED 初始化失败"));
-    return; // 不要死循环
+  SPI.begin(4, 5, 6);
+  mfrc522.PCD_Init();
+
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+    justWokeUp = true;
   }
-  display.clearDisplay();
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
-  display.println("HELLO");
-  display.display();
-  Serial.println("OLED显示已初始化");
+
+  turnOnOLED();
+  prefs.begin("reading", false);
+  totalReadingSeconds = prefs.getULong("totalSecs", 0);
+  adaptivePomodoroMillis = prefs.getULong("pomodoro", defaultPomodoroMin * 60000UL);
+  adaptiveTotalSessionTime = prefs.getULong("adaptTime", 0);
+  adaptiveSessionCount = prefs.getULong("adaptCount", 0);
+  lastBookInfo = prefs.getString("lastBook", "");
+
+  if (justWokeUp && lastBookInfo != "") {
+    drawRFIDInfo();
+    delay(5000);
+  }
 }
+
 void loop() {
-  Serial.println("loop running");
+  if (rfidDetected) {
+    drawRFIDInfo();
+    if (millis() - rfidDisplayStart > 5000) rfidDetected = false;
+    delay(100);
+    return;
+  }
+
+  int lightValue = analogRead(ldrPin);
+  unsigned long now = millis();
+  if (lightValue >= lightThreshold) updateLightTrend(lightValue);
+
+  if (lightValue < bookmarkThreshold) {
+    if (isReading || isPaused) {
+      unsigned long sessionMillis = accumulatedSessionMillis;
+      if (isReading) sessionMillis += now - sessionStartMillis;
+      totalReadingSeconds += sessionMillis / 1000;
+      updateAdaptivePomodoro(sessionMillis);
+      accumulatedSessionMillis = 0;
+    }
+    enterDeepSleep();
+    return;
+  }
+
+  if (lightValue < lightThreshold) {
+    if (isReading) {
+      accumulatedSessionMillis += now - sessionStartMillis;
+      isReading = false;
+      isPaused = true;
+      displayStatus("Low light.", "Please read in light place.", "Protect your eyes!");
+    } else {
+      displayStatus("Paused", "Waiting light...");
+    }
+    delay(1000);
+    return;
+  }
+
+  if (!isReading) {
+    if (inRest) {
+      if (now - restStartMillis >= restDuration) {
+        inRest = false;
+        displayStatus("Rest done.", "Back to reading");
+        beep(300);
+        sessionStartMillis = now;
+        accumulatedSessionMillis = 0;
+        isReading = true;
+      } else {
+        displayStatus("Resting...", "Enjoy your break");
+        delay(1000);
+        return;
+      }
+    } else {
+      sessionStartMillis = now;
+      isPaused = false;
+      isReading = true;
+      displayStatus("Good light", "Start reading");
+    }
+  } else {
+    unsigned long sessionMillis = accumulatedSessionMillis + (now - sessionStartMillis);
+    if (sessionMillis >= adaptivePomodoroMillis) {
+      totalReadingSeconds += sessionMillis / 1000;
+      updateAdaptivePomodoro(sessionMillis);
+      prefs.putULong("totalSecs", totalReadingSeconds);
+      accumulatedSessionMillis = 0;
+      isReading = false;
+      isPaused = false;
+      inRest = true;
+      displayStatus("Pomodoro done!", "Take a break");
+      beep(500);
+      restStartMillis = now;
+      delay(3000);
+    } else {
+      int cm = sessionMillis / 60000;
+      int cs = (sessionMillis / 1000) % 60;
+      int tm = totalReadingSeconds / 60;
+      int th = tm / 60;
+      tm = tm % 60;
+      int ts = totalReadingSeconds % 60;
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.setTextSize(1);
+      display.print("Reading: "); display.print(cm); display.print("m "); display.print(cs); display.println("s");
+      display.print("Total: "); display.print(th); display.print("h "); display.print(tm); display.print("m "); display.print(ts); display.println("s");
+      display.print("Pomodoro: "); display.print(adaptivePomodoroMillis / 60000); display.println("m");
+      drawBookAnimation(animationFrame++);
+      display.display();
+    }
+  }
   delay(1000);
 }
