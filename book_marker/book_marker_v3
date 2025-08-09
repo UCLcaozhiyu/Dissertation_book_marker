@@ -1,0 +1,331 @@
+#include <Arduino.h>
+#include <Preferences.h>
+#include "esp_system.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
+
+// ===== BLE (NimBLE) =====
+#include <NimBLEDevice.h>
+
+// === Pin definitions ===
+const int ldrPin = 0;
+const int buzzerPin = 10;
+
+// === Light thresholds ===
+const int lightThreshold = 1000;      // Minimum light for reading
+const int bookmarkThreshold = 50;     // Below this = bookmark inserted
+
+// === Pomodoro parameters ===
+const unsigned long workDuration = 25 * 60 * 1000UL; // 25 minutes work
+const unsigned long restDuration = 5 * 60 * 1000UL;  // 5 minutes rest
+
+// === State variables ===
+bool isReading = false;
+bool isPaused = false;
+bool inRest = false;
+unsigned long sessionStartMillis = 0;
+unsigned long accumulatedSessionMillis = 0;
+unsigned long restStartMillis = 0;
+bool hasShownBookmarkHint = false;
+bool hasBeepedLowLight = false;
+bool isBeeping = false;
+unsigned long beepStartMillis = 0;
+bool isSleeping = false;
+
+// === Persistent total reading time ===
+unsigned long totalReadingSeconds = 0;
+Preferences prefs;
+
+// === BLE objects ===
+NimBLEServer* bleServer = nullptr;
+NimBLECharacteristic* chTotal = nullptr;
+NimBLECharacteristic* chSession = nullptr;
+NimBLECharacteristic* chLight = nullptr;
+NimBLECharacteristic* chState = nullptr;
+NimBLECharacteristic* chCmd = nullptr;
+
+bool bleClientConnected = false;
+unsigned long lastNotifyMillis = 0;
+
+// === UUIDs for service and characteristics ===
+#define UUID_SVC             "5f9f0001-2b6a-4bca-8e7a-6a2e4f9a0001"
+#define UUID_CH_TOTAL        "5f9f0002-2b6a-4bca-8e7a-6a2e4f9a0002"
+#define UUID_CH_SESSION      "5f9f0003-2b6a-4bca-8e7a-6a2e4f9a0003"
+#define UUID_CH_LIGHT        "5f9f0004-2b6a-4bca-8e7a-6a2e4f9a0004"
+#define UUID_CH_STATE        "5f9f0005-2b6a-4bca-8e7a-6a2e4f9a0005"
+#define UUID_CH_CMD          "5f9f0006-2b6a-4bca-8e7a-6a2e4f9a0006"
+
+// === State codes ===
+enum ReadingState : uint8_t {
+  S_SLEEPING   = 0, // Deep sleep or bookmark inserted
+  S_READING    = 1, // Actively reading
+  S_PAUSED     = 2, // Paused due to low light
+  S_RESTING    = 3  // Resting (Pomodoro break)
+};
+
+// ===== Helper Functions =====
+void beep(int duration = 100) {
+  digitalWrite(buzzerPin, LOW);
+  delay(duration);
+  digitalWrite(buzzerPin, HIGH);
+}
+
+void printReadingTime(unsigned long seconds, bool total) {
+  int mins = seconds / 60;
+  int secs = seconds % 60;
+  if (total) {
+    Serial.print("\n🧠 Total accumulated reading time: "); // reference: output stored total reading time
+  } else {
+    Serial.print("⏱️ Current session reading time: ");     // reference: output current reading session time
+  }
+  Serial.print(mins);
+  Serial.print(" min ");
+  Serial.print(secs);
+  Serial.println(" sec");
+}
+
+// === BLE value update and notify ===
+template<typename T>
+void setValueAndNotify(NimBLECharacteristic* ch, const T& v, bool notify) {
+  ch->setValue((uint8_t*)&v, sizeof(T));
+  if (notify && bleClientConnected) {
+    ch->notify(true);
+  }
+}
+
+uint8_t currentStateCode() {
+  if (inRest) return S_RESTING;
+  if (isReading) return S_READING;
+  if (isPaused) return S_PAUSED;
+  return S_SLEEPING;
+}
+
+// === Command handler ===
+class CmdCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* pCharacteristic) override {
+    std::string v = pCharacteristic->getValue();
+    if (v == "RESET_TOTAL") {
+      totalReadingSeconds = 0;
+      prefs.putULong("totalSecs", totalReadingSeconds);
+      Serial.println("🧹 Command: Reset total reading time"); // reference: confirmation of command action
+      setValueAndNotify<unsigned long>(chTotal, totalReadingSeconds, true);
+    } else {
+      Serial.print("❓ Unknown command received: "); // reference: unsupported BLE command notification
+      Serial.println(v.c_str());
+    }
+  }
+};
+
+// === BLE server connection callbacks ===
+class ServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer* pServer) override {
+    bleClientConnected = true;
+    Serial.println("📶 BLE connected"); // reference: notify BLE connection
+  }
+  void onDisconnect(NimBLEServer* pServer) override {
+    bleClientConnected = false;
+    Serial.println("📴 BLE disconnected, restarting advertising"); // reference: BLE reconnection handling
+    NimBLEDevice::startAdvertising();
+  }
+};
+
+// === Initialize BLE service and characteristics ===
+void initBLE() {
+  NimBLEDevice::init("Bookstander BLE");
+  bleServer = NimBLEDevice::createServer();
+  bleServer->setCallbacks(new ServerCallbacks());
+
+  NimBLEService* svc = bleServer->createService(UUID_SVC);
+
+  chTotal   = svc->createCharacteristic(UUID_CH_TOTAL,  NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  chSession = svc->createCharacteristic(UUID_CH_SESSION,NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  chLight   = svc->createCharacteristic(UUID_CH_LIGHT,  NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  chState   = svc->createCharacteristic(UUID_CH_STATE,  NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  chCmd     = svc->createCharacteristic(UUID_CH_CMD,    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+
+  chCmd->setCallbacks(new CmdCallbacks());
+
+  setValueAndNotify<unsigned long>(chTotal, totalReadingSeconds, false);
+  unsigned long initSession = 0;
+  setValueAndNotify<unsigned long>(chSession, initSession, false);
+  uint16_t initLight = 0;
+  setValueAndNotify<uint16_t>(chLight, initLight, false);
+  uint8_t initState = S_SLEEPING;
+  setValueAndNotify<uint8_t>(chState, initState, false);
+
+  svc->start();
+
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  adv->addServiceUUID(UUID_SVC);
+  adv->setScanResponse(true);
+  adv->start();
+  Serial.println("📡 BLE advertising started: Bookstander BLE"); // reference: BLE ready status
+}
+
+void bleNotifyAll(uint16_t lightValue, unsigned long sessionSeconds, bool force = false) {
+  unsigned long now = millis();
+  if (!force && (now - lastNotifyMillis < 800)) return;
+  lastNotifyMillis = now;
+
+  setValueAndNotify<unsigned long>(chTotal, totalReadingSeconds, true);
+  setValueAndNotify<unsigned long>(chSession, sessionSeconds, true);
+  setValueAndNotify<uint16_t>(chLight, lightValue, true);
+  uint8_t st = currentStateCode();
+  setValueAndNotify<uint8_t>(chState, st, true);
+}
+
+void enterDeepSleep() {
+  Serial.println("🛌 Bookmark inserted, entering deep sleep to save power"); // reference: entering deep sleep mode
+
+  isBeeping = false;
+  isSleeping = true;
+  digitalWrite(buzzerPin, HIGH);
+  prefs.putULong("totalSecs", totalReadingSeconds);
+
+  pinMode(buzzerPin, INPUT);
+
+  gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
+
+  bleNotifyAll(0, 0, true);
+  delay(100);
+  esp_deep_sleep_start();
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(ldrPin, INPUT);
+  pinMode(buzzerPin, OUTPUT);
+  digitalWrite(buzzerPin, HIGH);
+
+  prefs.begin("reading", false);
+  totalReadingSeconds = prefs.getULong("totalSecs", 0);
+
+  Serial.println("\n📚 Reading Monitor System Started"); // reference: device startup confirmation
+  printReadingTime(totalReadingSeconds, true);
+
+  initBLE();
+}
+
+void loop() {
+  if (isSleeping) return;
+
+  int lightValue = analogRead(ldrPin);
+  unsigned long now = millis();
+
+  Serial.print("\n📡 Current light level: "); // reference: show LDR sensor reading
+  Serial.println(lightValue);
+
+  if (isBeeping) {
+    if (now - beepStartMillis <= 5000) {
+      digitalWrite(buzzerPin, (now / 500) % 2 == 0 ? LOW : HIGH);
+    } else {
+      digitalWrite(buzzerPin, HIGH);
+      isBeeping = false;
+    }
+  }
+
+  if (lightValue < bookmarkThreshold) {
+    if (!hasShownBookmarkHint) {
+      Serial.println("📕 Bookmark detected, ending current session..."); // reference: bookmark insertion event
+      if (isReading || isPaused) {
+        unsigned long sessionMillis = accumulatedSessionMillis;
+        if (isReading) {
+          sessionMillis += now - sessionStartMillis;
+        }
+        unsigned long sessionSeconds = sessionMillis / 1000;
+        totalReadingSeconds += sessionSeconds;
+        prefs.putULong("totalSecs", totalReadingSeconds);
+        printReadingTime(totalReadingSeconds, true);
+        bleNotifyAll(lightValue, 0, true);
+
+        isReading = false;
+        isPaused = false;
+        accumulatedSessionMillis = 0;
+      }
+      hasShownBookmarkHint = true;
+      enterDeepSleep();
+    }
+    delay(1000);
+    return;
+  } else {
+    hasShownBookmarkHint = false;
+  }
+
+  if (inRest) {
+    if (now - restStartMillis >= restDuration) {
+      Serial.println("✅ Rest period ended, starting next reading session"); // reference: Pomodoro rest end
+      beep(300);
+      inRest = false;
+      sessionStartMillis = now;
+      accumulatedSessionMillis = 0;
+      isReading = true;
+      bleNotifyAll(lightValue, 0, true);
+    } else {
+      Serial.println("💤 Currently resting..."); // reference: Pomodoro rest ongoing
+      bleNotifyAll(lightValue, 0, false);
+      delay(1000);
+      return;
+    }
+  }
+
+  if (lightValue >= lightThreshold) {
+    hasBeepedLowLight = false;
+    isBeeping = false;
+    digitalWrite(buzzerPin, HIGH);
+
+    if (!isReading) {
+      if (isPaused) {
+        sessionStartMillis = now;
+        isReading = true;
+        isPaused = false;
+        Serial.println("🔄 Light restored, resuming reading..."); // reference: resume reading
+      } else {
+        sessionStartMillis = now;
+        accumulatedSessionMillis = 0;
+        isReading = true;
+        Serial.println("✅ Good light detected, starting reading..."); // reference: start new reading session
+      }
+      bleNotifyAll(lightValue, 0, true);
+    } else {
+      unsigned long sessionMillis = accumulatedSessionMillis + (now - sessionStartMillis);
+      unsigned long sessionSeconds = sessionMillis / 1000;
+      printReadingTime(sessionSeconds, false);
+      printReadingTime(totalReadingSeconds, true);
+
+      bleNotifyAll(lightValue, sessionSeconds, false);
+
+      if (sessionMillis >= workDuration) {
+        Serial.println("🍅 Pomodoro session ended, take a 5-minute break"); // reference: Pomodoro work end
+        beep(500);
+        restStartMillis = now;
+        inRest = true;
+        isReading = false;
+        totalReadingSeconds += sessionMillis / 1000;
+        prefs.putULong("totalSecs", totalReadingSeconds);
+        printReadingTime(totalReadingSeconds, true);
+        accumulatedSessionMillis = 0;
+        bleNotifyAll(lightValue, 0, true);
+      }
+    }
+  } else if (lightValue >= bookmarkThreshold && lightValue < lightThreshold) {
+    if (isReading) {
+      accumulatedSessionMillis += now - sessionStartMillis;
+      Serial.println("🔅 Low light detected, pausing reading..."); // reference: pause reading due to insufficient light
+      if (!hasBeepedLowLight) {
+        beep();
+        hasBeepedLowLight = true;
+        isBeeping = true;
+        beepStartMillis = now;
+      }
+      isReading = false;
+      isPaused = true;
+      bleNotifyAll(lightValue, accumulatedSessionMillis / 1000, true);
+    } else {
+      Serial.println("🔅 Paused, waiting for light to improve..."); // reference: waiting for light
+      bleNotifyAll(lightValue, accumulatedSessionMillis / 1000, false);
+    }
+  }
+
+  delay(1000);
+}
