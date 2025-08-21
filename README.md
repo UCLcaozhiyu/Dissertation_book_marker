@@ -1,34 +1,34 @@
-# 📚 From Smart Bookmark to Intelligent Bookstand Low-Power Embedded System Design for Enhanced Paper-Based Reading
+#  From Smart Bookmark to Intelligent Bookstand Low-Power Embedded System Design for Enhanced Paper-Based Reading
 
 An intelligent reading time tracking device based on ESP32 that automatically recognizes different books through NFC cards, records reading time, and provides Pomodoro timer, statistical analysis, and other features.
 
-## ✨ Key Features
+##  Key Features
 
-### 🔖 Multi-Book Management
+###  Multi-Book Management
 - Support for tracking up to 10 books independently
 - Automatic book recognition and switching via NFC cards
 - Individual reading statistics for each book
 - Persistent data storage, no data loss on power off
 
-### 📊 Smart Tracking
+###  Smart Tracking
 - Automatic reading state detection via light sensor
 - Real-time reading time recording
 - Adaptive Pomodoro timer functionality
 - Personalized reading habit analysis
 
-### 💡 Power-Efficient Design
+###  Power-Efficient Design
 - Smart deep sleep mode (only 10μA power consumption)
 - Adaptive wake-up intervals (1-5 minutes)
 - Dual wake-up mechanism: GPIO and timer
 - Intelligent I2C bus management
 
-### 🎨 Beautiful Interface
+###  Beautiful Interface
 - 128x64 OLED display
 - Pixel art style UI design
 - Dynamic wave animation effects
 - Real-time status indicators
 
-## 🛠️ Hardware Requirements
+##  Hardware Requirements
 
 ### Core Components
 - **Microcontroller**: ESP32 WROOM-32D or ESP32-C3
@@ -64,7 +64,7 @@ ESP32 WROOM-32D:
     └── Other end → GND
 ```
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Environment Setup
 
@@ -102,7 +102,7 @@ ESP32 WROOM-32D:
    - `bookstand v3/WROOM32Ddeepsleepmode/` - Deep sleep optimized version
    - `bookstand v3/finalOLEDtest/finalOLEDv3/` - ESP32-C3 version
 
-## 📋 Functionality
+##  Functionality
 
 ### NFC Book Management
 - Place NFC card above the device for automatic book recognition
@@ -128,7 +128,7 @@ ESP32 WROOM-32D:
 - Reading frequency analysis
 - Number of completed Pomodoro sessions
 
-## 🔧 Advanced Configuration
+##  Advanced Configuration
 
 ### Sensor Calibration
 
@@ -214,7 +214,7 @@ Serial.begin(115200);
 Serial.println("=== Debug Mode Enabled ===");
 ```
 
-## 🤝 Contributing
+##  Contributing
 
 Issues and Pull Requests are welcome!
 
@@ -228,15 +228,15 @@ Issues and Pull Requests are welcome!
 - Bug fixes: `fix: fix issue description`
 - Documentation updates: `docs: update documentation content`
 
-## 📄 License
+##  License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👨‍💻 Author
+##  Author
 
 **Zhiyu Cao** - Embedded developer and reading enthusiast
 
-## 🙏 Acknowledgments
+##  Acknowledgments
 
 - Adafruit - Excellent hardware library support
 - ESP32 Community - Rich development resources
