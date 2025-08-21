@@ -204,6 +204,36 @@ const unsigned long wakeupInterval = 60000;  // Wake-up interval (milliseconds)
 - ✅ OLED pixel art interface
 - ✅ I2C bus conflict optimization
 
+## User Study & Feedback
+
+As part of project evaluation, user questionnaires were conducted during an exhibition:
+
+Positive response to reviving obsolete but aesthetically unique objects (e.g., bookmarks, cassette players) with IoT intelligence.
+
+Users preferred standalone functionality (OLED display, buzzer feedback) over BLE-only smartphone integration.
+
+Bookstand v2 was rated the most popular design:
+
+Artistic shell design
+
+Simple & intuitive UI
+
+Reliable NFC book switching
+
+## Research Context
+
+This project originated as a MSc Dissertation at UCL CASA (Connected Environments).
+
+Explores IoT-enablement of traditional reading tools
+
+Tests feasibility of solar-assisted embedded systems in micro form factors
+
+Investigates balance between traditional aesthetics and smart functionality
+
+Informs future IoT retrofits for legacy objects
+
+Related literature includes indoor photovoltaics, low-power embedded system design, and user acceptance of IoT-enabled traditional objects.
+
 ## 🐛 Troubleshooting
 
 ### Common Issues
