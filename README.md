@@ -1,6 +1,8 @@
 #  From Smart Bookmark to Intelligent Bookstand Low-Power Embedded System Design for Enhanced Paper-Based Reading
 
-An intelligent reading time tracking device based on ESP32 that automatically recognizes different books through NFC cards, records reading time, and provides Pomodoro timer, statistical analysis, and other features.
+An intelligent reading-time tracking device based on ESP32 that automatically recognizes different books through NFC, records reading time, and provides Pomodoro timer, statistical analysis, and other features.
+
+Originally conceived as an ultra-thin solar-powered smart bookmark, the project evolved into a desktop-style smart bookstand to overcome energy and hardware constraints while enhancing usability and user experience.
 
 ##  Key Features
 
@@ -22,20 +24,32 @@ An intelligent reading time tracking device based on ESP32 that automatically re
 - Dual wake-up mechanism: GPIO and timer
 - Intelligent I2C bus management
 
-###  Beautiful Interface
+###  User Interaction
 - 128x64 OLED display
 - Pixel art style UI design
-- Dynamic wave animation effects
+- Real-time trend graph of ambient light，dynamic wave animation effects
+- Buzzer notifications for reading/rest prompts
 - Real-time status indicators
 
 ##  Hardware Requirements
 
 ### Core Components
-- **Microcontroller**: ESP32 WROOM-32D or ESP32-C3
+- **MCU**: ESP32-C3 / ESP32 WROOM-32D
 - **Display**: SSD1306 OLED (128x64, I2C interface)
 - **NFC Module**: PN532 (I2C interface)
 - **Light Sensor**: Light Dependent Resistor (LDR)
-- **Audio**: Buzzer module
+- **Audio**: Active buzzer module (HYT-0905)
+- **Power**: BQ24074 charging + Li-ion battery + optional solar panel
+
+Power Options
+
+Monocrystalline solar panel (5V) → sustainable indoor charging
+
+USB Type-C → backup fast charging
+
+Battery: 401020 Li-ion (~120 mAh)
+
+Earlier prototypes attempted OPV flexible solar panels for true bookmark size, but lab tests showed insufficient indoor output (<6 mW @ 500 lux). This led to the shift toward the bookstand form factor with hybrid solar + USB charging.
 
 ### Wiring Diagram
 
@@ -69,12 +83,14 @@ ESP32 WROOM-32D:
 ### Environment Setup
 
 1. **Install Arduino IDE** (Recommended version 2.0+)
-2. **Add ESP32 Board Support**:
+    -Add ESP32 board support via: https://dl.espressif.com/dl/package_esp32_index.json
+
+3. **Add ESP32 Board Support**:
    - File → Preferences → Additional Boards Manager URLs
    - Add: `https://dl.espressif.com/dl/package_esp32_index.json`
    - Tools → Board → Boards Manager → Search "ESP32" and install
 
-3. **Install Required Libraries**:
+4. **Install Required Libraries**:
    ```
    - Adafruit GFX Library
    - Adafruit SSD1306
