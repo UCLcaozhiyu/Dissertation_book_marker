@@ -1,9 +1,9 @@
-# 📚 Smart Reading Tracker
+# 📚 From Smart Bookmark to Intelligent Bookstand Low-Power Embedded System Design for Enhanced Paper-Based Reading
 
 An intelligent reading time tracking device based on ESP32 that automatically recognizes different books through NFC cards, records reading time, and provides Pomodoro timer, statistical analysis, and other features.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Platform](https://img.shields.io/badge/platform-ESP32-green.svg)
+![Platform](https://www.espboards.dev/esp32/esp32-c3-super-mini/)
 ![Version](https://img.shields.io/badge/version-v3.0-orange.svg)
 
 ## ✨ Key Features
