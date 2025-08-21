@@ -178,6 +178,13 @@ const unsigned long wakeupInterval = 60000;  // Wake-up interval (milliseconds)
 ```
 
 ## 📊 Version History
+| Version           | Key Features                                            | Status              |
+| ----------------- | ------------------------------------------------------- | ------------------- |
+| **Bookmark (v1)** | Ultra-thin OPV-powered design, BLE output               | ❌ Energy infeasible |
+| **Bookstand v1**  | Dock charging, FSR sensor                               | Deprecated          |
+| **Bookstand v2**  | OLED + NFC + Pomodoro + solar + Type-C                  | ✅ Exhibition-tested |
+| **Bookstand v3**  | Multi-book tracking, adaptive Pomodoro, I²C arbitration | ✅ Current release   |
+
 
 ### v3.0 - Multi-Book Management Version
 - ✅ Support for tracking up to 10 books independently
