@@ -2,10 +2,6 @@
 
 An intelligent reading time tracking device based on ESP32 that automatically recognizes different books through NFC cards, records reading time, and provides Pomodoro timer, statistical analysis, and other features.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Platform](https://www.espboards.dev/esp32/esp32-c3-super-mini.svg)
-![Version](https://img.shields.io/badge/version-v3.0-orange.svg)
-
 ## ✨ Key Features
 
 ### 🔖 Multi-Book Management
